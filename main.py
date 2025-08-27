@@ -268,18 +268,40 @@ async def handle_registration(req: ChatRequest):
             error="Use format: 'register:your_username'"
         )
     
-    # Check if user already exists
+    # Check if user already exists in users table
     user_exists = False
+    user_uuid = None
     if supabase:
         try:
             user_uuid = generate_user_uuid(username)
-            result = supabase.table("emotion_logs").select("user_id").eq("user_id", user_uuid).limit(1).execute()
+            result = supabase.table("users").select("id").eq("id", user_uuid).limit(1).execute()
             user_exists = len(result.data) > 0
         except Exception as e:
             logger.error(f"Failed to check user existence: {e}")
     
-    # Log the registration
-    await log_to_supabase(username, "REGISTRATION", "neutral", "User registered")
+    # Create user if doesn't exist
+    if not user_exists and supabase:
+        try:
+            user_data = {
+                "id": user_uuid,
+                "username": username,
+                "email": f"{username}@example.com",  # Placeholder email
+                "created_at": datetime.utcnow().isoformat()
+            }
+            result = supabase.table("users").insert(user_data).execute()
+            logger.info(f"Created new user: {result}")
+            user_exists = True
+        except Exception as e:
+            logger.error(f"Failed to create user: {e}")
+            return ApiResponse(
+                success=False,
+                message="Registration failed",
+                error="Failed to create user account"
+            )
+    
+    # Log the registration to emotion_logs
+    if user_exists:
+        await log_to_supabase(username, "REGISTRATION", "neutral", "User registered")
     
     if user_exists:
         return ApiResponse(
@@ -320,6 +342,23 @@ async def log_to_supabase(user_id: str, message: str, emotion: str, reply: str):
     try:
         # Generate UUID for user_id
         user_uuid = generate_user_uuid(user_id)
+        
+        # Ensure user exists in users table first
+        try:
+            user_check = supabase.table("users").select("id").eq("id", user_uuid).limit(1).execute()
+            if len(user_check.data) == 0:
+                # Create user if doesn't exist
+                user_data = {
+                    "id": user_uuid,
+                    "username": user_id,
+                    "email": f"{user_id}@example.com",  # Placeholder email
+                    "created_at": datetime.utcnow().isoformat()
+                }
+                supabase.table("users").insert(user_data).execute()
+                logger.info(f"Created user {user_id} for logging")
+        except Exception as e:
+            logger.error(f"Failed to ensure user exists: {e}")
+            return
         
         # Insert data matching your table schema
         data = {
@@ -758,9 +797,9 @@ async def check_user_exists(user_id: str):
         )
     
     try:
-        # Query the emotion_logs table for the user_id
+        # Query the users table for the user_id
         user_uuid = generate_user_uuid(user_id)
-        result = supabase.table("emotion_logs").select("user_id").eq("user_id", user_uuid).limit(1).execute()
+        result = supabase.table("users").select("id").eq("id", user_uuid).limit(1).execute()
         
         user_exists = len(result.data) > 0
         
