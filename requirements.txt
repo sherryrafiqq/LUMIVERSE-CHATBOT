@@ -3,7 +3,7 @@ uvicorn[standard]==0.24.0
 pydantic==2.5.0
 python-dotenv==1.0.0
 langchain-core==0.1.10
-langchain-cohere==0.0.3
+langchain-cohere==0.4.5
 cohere==4.37
 python-multipart==0.0.6
 supabase==1.2.0
