@@ -1,9 +1,27 @@
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-pydantic==2.5.0
-python-dotenv==1.0.0
-langchain-core==0.1.10
-langchain-cohere==0.4.5
-cohere>=5.12.0
-python-multipart==0.0.6
-supabase==1.2.0
+# Core FastAPI and server dependencies
+fastapi>=0.100.0
+uvicorn[standard]>=0.24.0
+websockets==10.4
+pydantic>=2.5.0
+python-multipart>=0.0.6
+
+# Database and API dependencies
+supabase>=2.0.0
+postgrest>=1.0.0
+httpx>=0.24.0
+
+# AI and LangChain dependencies
+langchain-core>=0.1.0
+langchain-cohere>=0.4.0
+cohere>=4.0.0
+
+# Authentication and security
+python-jose[cryptography]>=3.3.0
+PyJWT>=2.8.0
+
+# Environment and utilities
+python-dotenv>=1.0.0
+requests>=2.31.0
+
+# Email validation (for Pydantic)
+email-validator>=2.0.0

@@ -30,7 +30,7 @@ try:
     from pydantic import BaseModel, validator
     from langchain_core.prompts import PromptTemplate
     from langchain_cohere import ChatCohere
-    from supabase import create_client
+    from supabase import create_client, Client
     import traceback
     from dotenv import load_dotenv
 except ImportError as e:
@@ -162,7 +162,7 @@ emotion_chain = None
 response_chain = None
 
 # Initialize Supabase client
-supabase = None
+supabase: Client = None
 
 def initialize_supabase():
     """Initialize Supabase client"""
@@ -196,9 +196,7 @@ def initialize_ai():
         llm = ChatCohere(
             model="command", 
             temperature=0.1, 
-            max_tokens=150,
-            p=0.9,  # Nucleus sampling for faster generation
-            k=50    # Top-k sampling for faster generation
+            max_tokens=150
         )
         
         emotion_prompt = PromptTemplate.from_template("""
