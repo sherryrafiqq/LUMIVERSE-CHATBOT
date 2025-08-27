@@ -27,10 +27,10 @@ try:
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import JSONResponse
     from fastapi.staticfiles import StaticFiles
-    from pydantic import BaseModel, validator
+    from pydantic import BaseModel, field_validator
     from langchain_core.prompts import PromptTemplate
     from langchain_cohere import ChatCohere
-    from supabase import create_client, Client
+    from supabase import create_client
     import traceback
     from dotenv import load_dotenv
 except ImportError as e:
@@ -143,7 +143,8 @@ class ChatRequest(BaseModel):
     message: str
     user_id: str = "anonymous"  # Default to anonymous if not provided
     
-    @validator('message')
+    @field_validator('message')
+    @classmethod
     def validate_message(cls, v):
         if len(v.strip()) == 0:
             raise ValueError('Message cannot be empty')
@@ -162,7 +163,7 @@ emotion_chain = None
 response_chain = None
 
 # Initialize Supabase client
-supabase: Client = None
+supabase = None
 
 def initialize_supabase():
     """Initialize Supabase client"""
@@ -647,15 +648,11 @@ async def chat_endpoint(req: ChatRequest):
                 error="Message must be less than 1000 characters"
             )
         
-        # Get emotion detection with timeout protection
+        # Get emotion detection (simplified without asyncio)
         detected_emotion = 'neutral'
         try:
-            import asyncio
-            # Set timeout for AI calls (10 seconds)
-            emotion_result = await asyncio.wait_for(
-                asyncio.to_thread(emotion_chain.invoke, {"message": req.message}),
-                timeout=10.0
-            )
+            # Direct call to emotion chain
+            emotion_result = emotion_chain.invoke({"message": req.message})
             
             # Extract and clean the raw response
             raw_emotion = emotion_result.content.strip()
@@ -673,26 +670,19 @@ async def chat_endpoint(req: ChatRequest):
                 logger.warning(f"Unknown emotion detected: '{detected_emotion}', defaulting to neutral")
                 detected_emotion = 'neutral'
                 
-        except asyncio.TimeoutError:
-            logger.warning(f"Emotion detection timeout")
-            detected_emotion = 'neutral'
         except Exception as e:
             logger.error(f"Emotion detection failed: {e}")
             detected_emotion = 'neutral'
         
-        # Generate response with timeout protection
+        # Generate response (simplified without asyncio)
         reply = "I'm here to listen and support you. Could you tell me more about how you're feeling?"
         try:
-            import asyncio
             start_time = time.time()
-            # Set timeout for AI calls (20 seconds) - optimized for faster responses
-            bot_response = await asyncio.wait_for(
-                asyncio.to_thread(response_chain.invoke, {
-                    "emotion": detected_emotion,
-                    "message": req.message
-                }),
-                timeout=20.0
-            )
+            # Direct call to response chain
+            bot_response = response_chain.invoke({
+                "emotion": detected_emotion,
+                "message": req.message
+            })
             response_time = time.time() - start_time
             logger.info(f"Response generated in {response_time:.2f} seconds")
             reply = bot_response.content.strip()
@@ -705,9 +695,6 @@ async def chat_endpoint(req: ChatRequest):
             if len(reply) > 500:
                 reply = reply[:500] + "..."
                 
-        except asyncio.TimeoutError:
-            logger.warning(f"Response generation timeout")
-            reply = "I'm taking a moment to think about your message. Could you tell me more about how you're feeling?"
         except Exception as e:
             logger.error(f"Response generation failed: {e}")
             reply = "I'm here to listen and support you. Could you tell me more about how you're feeling?"
