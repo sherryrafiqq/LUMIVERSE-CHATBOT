@@ -321,10 +321,11 @@ async def log_to_supabase(user_id: str, message: str, emotion: str, reply: str):
         # Generate UUID for user_id
         user_uuid = generate_user_uuid(user_id)
         
-        # Only insert the columns that exist in your table
+        # Insert data matching your table schema
         data = {
             "user_id": user_uuid,
-            "message": f"[{emotion}] {message} | Reply: {reply}",
+            "message": message,
+            "emotion": emotion,
             "created_at": datetime.utcnow().isoformat()
         }
         
