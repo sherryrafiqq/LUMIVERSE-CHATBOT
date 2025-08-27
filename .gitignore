@@ -59,12 +59,13 @@ logs/
 *.tmp
 *.temp
 
-# Test files (optional - remove if you want to keep them)
+# Test files (exclude from deployment)
 test_*.py
 debug_*.py
 verify_*.py
 fix_*.py
 railway_setup.py
+quick_test.py
 
-# HTML test file (optional - remove if you want to keep it)
+# HTML test file (exclude from deployment)
 test_api.html
