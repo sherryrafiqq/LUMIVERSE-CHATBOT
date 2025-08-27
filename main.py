@@ -380,7 +380,7 @@ def generate_user_uuid(username: str) -> str:
 
 async def log_to_supabase(user_id: str, message: str, emotion: str, reply: str):
     """Log chat interaction to Supabase"""
-    global supabase
+    global supabase, supabase_admin
     
     if not supabase:
         logger.warning("Supabase not initialized - skipping log")
@@ -410,8 +410,14 @@ async def log_to_supabase(user_id: str, message: str, emotion: str, reply: str):
             "created_at": datetime.utcnow().isoformat()
         }
         
-        result = supabase.table("emotion_logs").insert(data).execute()
-        logger.info(f"Logged interaction to Supabase: {result}")
+        # Use admin client to bypass RLS for logging
+        if supabase_admin:
+            result = supabase_admin.table("emotion_logs").insert(data).execute()
+            logger.info(f"Logged interaction to Supabase using admin client: {result}")
+        else:
+            # Fallback to regular client (might fail due to RLS)
+            result = supabase.table("emotion_logs").insert(data).execute()
+            logger.info(f"Logged interaction to Supabase using regular client: {result}")
         
     except Exception as e:
         logger.error(f"Failed to log to Supabase: {e}")
