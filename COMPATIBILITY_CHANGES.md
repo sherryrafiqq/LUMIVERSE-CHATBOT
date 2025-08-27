@@ -122,11 +122,28 @@ supabase = None
 - Tests async/await functionality
 - Tests main.py import compatibility
 
+### 6. **Fixed Supabase Database Schema Issues** ✅
+
+**Files:** `main.py`, `test_uuid.py`
+
+**Changes:**
+- Fixed UUID format issue for `user_id` column
+- Added `generate_user_uuid()` function for consistent UUID generation
+- Updated `log_to_supabase()` to match actual table schema
+- Combined emotion and reply data into message field
+- Fixed user existence checks to use UUIDs
+- Added UUID generation test script
+
 ## 🧪 Testing the Changes
 
 ### Run the Simple Test (No Async):
 ```bash
 python test_simple.py
+```
+
+### Run the UUID Test:
+```bash
+python test_uuid.py
 ```
 
 ### Run the Compatibility Test Suite:

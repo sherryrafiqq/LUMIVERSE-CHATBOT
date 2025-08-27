@@ -32,6 +32,7 @@ try:
     from langchain_cohere import ChatCohere
     from supabase import create_client
     import traceback
+    import uuid
     from dotenv import load_dotenv
 except ImportError as e:
     logger.error(f"Import error: {e}")
@@ -271,7 +272,8 @@ async def handle_registration(req: ChatRequest):
     user_exists = False
     if supabase:
         try:
-            result = supabase.table("emotion_logs").select("user_id").eq("user_id", username).limit(1).execute()
+            user_uuid = generate_user_uuid(username)
+            result = supabase.table("emotion_logs").select("user_id").eq("user_id", user_uuid).limit(1).execute()
             user_exists = len(result.data) > 0
         except Exception as e:
             logger.error(f"Failed to check user existence: {e}")
@@ -302,6 +304,11 @@ async def handle_registration(req: ChatRequest):
             }
         )
 
+def generate_user_uuid(username: str) -> str:
+    """Generate a consistent UUID for a username"""
+    # Use a deterministic UUID based on the username
+    return str(uuid.uuid5(uuid.NAMESPACE_DNS, username))
+
 async def log_to_supabase(user_id: str, message: str, emotion: str, reply: str):
     """Log chat interaction to Supabase"""
     global supabase
@@ -311,11 +318,13 @@ async def log_to_supabase(user_id: str, message: str, emotion: str, reply: str):
         return
     
     try:
+        # Generate UUID for user_id
+        user_uuid = generate_user_uuid(user_id)
+        
+        # Only insert the columns that exist in your table
         data = {
-            "user_id": user_id,
-            "message": message,
-            "emotion": emotion,
-            "reply": reply,
+            "user_id": user_uuid,
+            "message": f"[{emotion}] {message} | Reply: {reply}",
             "created_at": datetime.utcnow().isoformat()
         }
         
@@ -749,7 +758,8 @@ async def check_user_exists(user_id: str):
     
     try:
         # Query the emotion_logs table for the user_id
-        result = supabase.table("emotion_logs").select("user_id").eq("user_id", user_id).limit(1).execute()
+        user_uuid = generate_user_uuid(user_id)
+        result = supabase.table("emotion_logs").select("user_id").eq("user_id", user_uuid).limit(1).execute()
         
         user_exists = len(result.data) > 0
         
