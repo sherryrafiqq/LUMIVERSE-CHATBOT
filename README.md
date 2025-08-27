@@ -31,15 +31,17 @@ An empathetic AI chatbot built with FastAPI that provides emotional support and 
 3. **Set up environment variables**
    ```bash
    # Copy the template
-   cp variables.env .env
+   # No need to copy - use variables.env directly
    
-   # Edit .env and add your Cohere API key
+   # Edit variables.env and add your API keys
    COHERE_API_KEY=your_actual_api_key_here
+   SUPABASE_URL=https://qvqbhoptpecvflidiqik.supabase.co
+   SUPABASE_ANON_KEY=your_supabase_anon_key_here
    ```
 
 4. **Run the application**
    ```bash
-   python "main (3).py"
+   python main.py
    ```
 
 5. **Test the API**
@@ -48,43 +50,61 @@ An empathetic AI chatbot built with FastAPI that provides emotional support and 
 
 ## 🚂 Railway Deployment
 
-### Option 1: Deploy via Railway CLI
+### Quick Deploy (Recommended)
+
+1. **Push your code to GitHub**
+   ```bash
+   git add .
+   git commit -m "Ready for Railway deployment"
+   git push origin main
+   ```
+
+2. **Deploy on Railway**
+   - Go to [railway.app](https://railway.app)
+   - Click "New Project" → "Deploy from GitHub repo"
+   - Select your repository
+   - Railway will automatically detect it's a Python app
+
+3. **Set Environment Variables**
+   In the Railway dashboard, go to your project → Variables tab and add:
+   ```
+   COHERE_API_KEY=your_actual_cohere_api_key
+   SUPABASE_URL=https://qvqbhoptpecvflidiqik.supabase.co
+   SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF2cWJob3B0cGVjdmZsaWRpcWlrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ1OTU4MTUsImV4cCI6MjA3MDE3MTgxNX0.RMohPWr8VmsC5lvFmN6Ys27CWByySwdlsks09O9N97k
+   RAILWAY=true
+   ```
+
+4. **Deploy!** Railway will automatically build and deploy your app.
+
+### Alternative: Railway CLI
 
 1. **Install Railway CLI**
    ```bash
    npm install -g @railway/cli
    ```
 
-2. **Login to Railway**
+2. **Login and deploy**
    ```bash
    railway login
-   ```
-
-3. **Initialize and deploy**
-   ```bash
    railway init
    railway up
    ```
 
-4. **Set environment variables**
+3. **Set environment variables**
    ```bash
    railway variables set COHERE_API_KEY=your_actual_api_key_here
+   railway variables set SUPABASE_URL=https://qvqbhoptpecvflidiqik.supabase.co
+   railway variables set SUPABASE_ANON_KEY=your_supabase_anon_key_here
+   railway variables set RAILWAY=true
    ```
-
-### Option 2: Deploy via Railway Dashboard
-
-1. **Connect your GitHub repository** to Railway
-2. **Create a new service** from your repository
-3. **Add environment variables** in the Railway dashboard:
-   - `COHERE_API_KEY`: Your Cohere API key
-   - `RAILWAY`: `true` (optional, auto-detected)
-4. **Deploy** - Railway will automatically detect the Python app and deploy it
 
 ## 🔧 Environment Variables
 
 | Variable | Required | Description | Default |
 |----------|----------|-------------|---------|
 | `COHERE_API_KEY` | Yes | Your Cohere API key | None |
+| `SUPABASE_URL` | Yes | Your Supabase project URL | None |
+| `SUPABASE_ANON_KEY` | Yes | Your Supabase anonymous key | None |
 | `DEBUG` | No | Enable debug mode | `False` |
 | `RAILWAY` | No | Set to `true` on Railway | Auto-detected |
 
@@ -172,13 +192,13 @@ Visit `/health` to check the status of all components:
 
 ```
 IoT2/
-├── main (3).py          # Main FastAPI application
-├── requirements.txt     # Python dependencies
-├── Procfile            # Railway deployment config
-├── runtime.txt         # Python version
-├── variables.env       # Environment variables template
-├── test_api.html       # Test interface
-└── README.md           # This file
+├── main.py             # Main FastAPI application
+├── requirements.txt    # Python dependencies
+├── Procfile           # Railway deployment config
+├── runtime.txt        # Python version
+├── variables.env      # Environment variables template
+├── test_api.html      # Test interface
+└── README.md          # This file
 ```
 
 ## 🤝 Contributing

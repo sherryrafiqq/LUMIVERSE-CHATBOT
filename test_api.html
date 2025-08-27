@@ -193,6 +193,129 @@
             font-size: 14px;
         }
 
+        .user-info {
+            background: #f8f9fa;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 10px;
+            border-left: 4px solid #28a745;
+        }
+
+        .user-info h3 {
+            color: #28a745;
+            margin-bottom: 15px;
+        }
+
+        .user-input-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .user-input-group label {
+            font-weight: 600;
+            color: #333;
+            min-width: 80px;
+        }
+
+        .user-id-input {
+            flex: 1;
+            padding: 10px 15px;
+            border: 2px solid #e1e5e9;
+            border-radius: 8px;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.3s ease;
+        }
+
+        .user-id-input:focus {
+            border-color: #28a745;
+        }
+
+        .set-user-btn {
+            background: #28a745;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: background-color 0.3s ease;
+        }
+
+        .set-user-btn:hover {
+            background: #218838;
+        }
+
+        .register-btn {
+            background: #fd7e14;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: background-color 0.3s ease;
+        }
+
+        .register-btn:hover {
+            background: #e8690b;
+        }
+
+        .registration-info {
+            margin-top: 10px;
+            padding: 10px;
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 6px;
+            font-size: 12px;
+            color: #856404;
+        }
+
+        .check-user-btn {
+            background: #17a2b8;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: background-color 0.3s ease;
+        }
+
+        .check-user-btn:hover {
+            background: #138496;
+        }
+
+        .user-status {
+            margin-top: 15px;
+            padding: 12px;
+            border-radius: 8px;
+            font-weight: 500;
+            text-align: center;
+        }
+
+        .user-status.welcome-back {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .user-status.new-user {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        .user-status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
         .typing-indicator {
             display: none;
             padding: 15px 20px;
@@ -261,6 +384,20 @@
             <p><strong>AI Available:</strong> <span id="aiStatus">Checking...</span></p>
         </div>
 
+        <div class="user-info">
+            <h3>👤 User Registration & Settings</h3>
+            <div class="user-input-group">
+                <label for="userIdInput">Username:</label>
+                <input type="text" id="userIdInput" class="user-id-input" placeholder="Enter your username" value="test_user">
+                <button id="registerBtn" class="register-btn">Register</button>
+                <button id="checkUserBtn" class="check-user-btn">Check User</button>
+            </div>
+            <div class="registration-info">
+                <p><strong>For FlutterFlow:</strong> Send "register:username" as first message to register</p>
+            </div>
+            <div id="userStatus" class="user-status" style="display: none;"></div>
+        </div>
+
         <div id="status" class="status" style="display: none;"></div>
 
         <div class="chat-container" id="chatContainer">
@@ -305,6 +442,13 @@
         const baseUrlSpan = document.getElementById('baseUrl');
         const apiStatusSpan = document.getElementById('apiStatus');
         const aiStatusSpan = document.getElementById('aiStatus');
+        const userIdInput = document.getElementById('userIdInput');
+        const registerBtn = document.getElementById('registerBtn');
+        const checkUserBtn = document.getElementById('checkUserBtn');
+        const userStatusDiv = document.getElementById('userStatus');
+
+        // User ID management
+        let currentUserId = 'test_user_' + Date.now();
 
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
@@ -321,6 +465,92 @@
                     sendMessage();
                 }
             });
+            
+            registerBtn.addEventListener('click', registerUser);
+            userIdInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    registerUser();
+                }
+            });
+            
+            checkUserBtn.addEventListener('click', checkUserExists);
+        }
+
+        async function registerUser() {
+            const username = userIdInput.value.trim();
+            if (!username) {
+                showUserStatus('Please enter a username', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE_URL}${ENDPOINTS.chat}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ 
+                        message: `register:${username}`,
+                        user_id: username
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    currentUserId = username;
+                    if (data.data.is_new_user) {
+                        showUserStatus(`✅ Registration successful! Welcome, ${username}!`, 'new-user');
+                        addMessage(data.data.reply, 'bot', 'neutral');
+                    } else {
+                        showUserStatus(`✅ Welcome back, ${username}!`, 'welcome-back');
+                        addMessage(data.data.reply, 'bot', 'neutral');
+                    }
+                } else {
+                    showUserStatus(`Error: ${data.error || 'Registration failed'}`, 'error');
+                }
+            } catch (error) {
+                console.error('Registration failed:', error);
+                showUserStatus('Failed to register. Please try again.', 'error');
+            }
+        }
+
+        async function checkUserExists() {
+            const userId = userIdInput.value.trim();
+            if (!userId) {
+                showUserStatus('Please enter a User ID first', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/check-user/${userId}`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    if (data.data.exists) {
+                        showUserStatus(data.data.message, 'welcome-back');
+                    } else {
+                        showUserStatus(data.data.message, 'new-user');
+                    }
+                } else {
+                    showUserStatus(`Error: ${data.error || 'Unknown error'}`, 'error');
+                }
+            } catch (error) {
+                console.error('User check failed:', error);
+                showUserStatus('Failed to check user. Please try again.', 'error');
+            }
+        }
+
+        function showUserStatus(message, type) {
+            userStatusDiv.textContent = message;
+            userStatusDiv.className = `user-status ${type}`;
+            userStatusDiv.style.display = 'block';
+            
+            // Auto-hide after 8 seconds
+            setTimeout(() => {
+                userStatusDiv.style.display = 'none';
+            }, 8000);
         }
 
         async function checkApiHealth() {
@@ -367,7 +597,10 @@
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ message: message })
+                    body: JSON.stringify({ 
+                        message: message,
+                        user_id: currentUserId
+                    })
                 });
 
                 const data = await response.json();

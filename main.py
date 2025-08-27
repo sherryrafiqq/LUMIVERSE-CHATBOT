@@ -30,6 +30,7 @@ try:
     from pydantic import BaseModel, validator
     from langchain_core.prompts import PromptTemplate
     from langchain_cohere import ChatCohere
+    from supabase import create_client
     import traceback
     from dotenv import load_dotenv
 except ImportError as e:
@@ -45,6 +46,8 @@ load_dotenv("variables.env")
 
 # Environment Variables - No hardcoded defaults for security
 COHERE_API_KEY = os.getenv("COHERE_API_KEY")
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
 
 # Platform specific configurations
 IS_PYTHONANYWHERE = os.getenv("PYTHONANYWHERE_SITE", "").startswith("www.pythonanywhere.com")
@@ -138,6 +141,7 @@ class ApiResponse(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
+    user_id: str = "anonymous"  # Default to anonymous if not provided
     
     @validator('message')
     def validate_message(cls, v):
@@ -157,6 +161,26 @@ llm = None
 emotion_chain = None
 response_chain = None
 
+# Initialize Supabase client
+supabase = None
+
+def initialize_supabase():
+    """Initialize Supabase client"""
+    global supabase
+    
+    if not SUPABASE_URL or not SUPABASE_ANON_KEY:
+        logger.warning("Supabase credentials not provided - logging disabled")
+        return False
+    
+    try:
+        global supabase
+        supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
+        logger.info("Supabase client initialized successfully")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to initialize Supabase: {e}")
+        return False
+
 def initialize_ai():
     """Initialize AI models with retry logic"""
     global AI_AVAILABLE, llm, emotion_chain, response_chain
@@ -170,7 +194,7 @@ def initialize_ai():
     try:
         # Optimized LLM configuration for faster response generation
         llm = ChatCohere(
-            model="command-r-plus", 
+            model="command", 
             temperature=0.1, 
             max_tokens=150,
             p=0.9,  # Nucleus sampling for faster generation
@@ -178,28 +202,39 @@ def initialize_ai():
         )
         
         emotion_prompt = PromptTemplate.from_template("""
-You are an expert emotion classifier. Analyze the message and classify it into exactly one of these 6 categories:joy, sadness, anger, fear, disgust, neutral. Choose the closest match from: joy, sadness, anger, fear, disgust.
-If the message is completely neutral with no emotional tone, respond with: neutral
+You are an expert emotion classifier. Classify the message into exactly one emotion: joy, sadness, anger, fear, disgust, neutral.
+
+SADNESS includes: sad, depressed, hopeless, lonely, down, miserable, heartbroken, grieving, disappointed, empty, worthless, suicidal thoughts, "I can't go on", "life is meaningless"
+
+FEAR includes: scared, anxious, worried, terrified, nervous, stressed, panic, overwhelmed, but NOT depression or sadness
+
 Message: {message}
+
 Respond with ONLY one word: joy, sadness, anger, fear, disgust, or neutral
 """)
 
         response_prompt = PromptTemplate.from_template("""
-You are a warm, empathetic friend. Respond briefly (4-5 sentences max) but with genuine care.
+You are InsideOut, a warm and empathetic AI companion. Keep responses SHORT - maximum 3 sentences only.
 
 User's message: {message}
 Detected emotion: {emotion}
 
-Guidelines:
-- Use relevant emojis
-- Acknowledge their emotion briefly and validate it
-- Use warm, natural language
-- If they're sad/angry/fearful: offer comfort and support
-- If they're joyful: share their happiness
-- If neutral: gently invite them to share feelings
-- For suicidal/self-harm/extreme anxiety or panic attack thoughts: respond with immediate care, send them the link for Egypt's General Secretariat of Mental Health: "https://mentalhealth.mohp.gov.eg/" and Egypt's mental health holtines: (16328, 105 and 15335), and encourage professional help. Reassure user that it's gonna get better, that you're by their side and there are people available to provide help 24/7.
+RESPONSE RULES:
+- MAXIMUM 5 SENTENCES ONLY
+- Use 1-2 emojis maximum
+- Be warm and caring and offer to help.
 
-Keep responses concise but caring. Sound like a compassionate human friend.
+For each emotion:
+JOY: "I'm so happy for you! 😊 [1-2 sentences sharing their joy]"
+SADNESS: "I'm really sorry you're feeling this way. 💙 [1-2 sentences offering comfort]"
+ANGER: "I understand why you'd feel angry about that. 😤 [1-2 sentences validating feelings]"
+FEAR: "That sounds really scary, and it's okay to feel afraid. 😰 [1-2 sentences offering reassurance]"
+DISGUST: "That's definitely upsetting. 😣 [1-2 sentences validating reaction]"
+NEUTRAL: "How are you really feeling today? 🤔 [1-2 sentences inviting sharing]"
+
+CRISIS: If suicidal/self-harm thoughts: "I'm really worried about you. 💙 Please call Egypt's mental health hotlines: 16328, 105, or 15335, or visit https://mentalhealth.mohp.gov.eg/. You're not alone and things will get better."
+
+Keep it SHORT and caring.
 """)
 
         emotion_chain = emotion_prompt | llm
@@ -213,6 +248,84 @@ Keep responses concise but caring. Sound like a compassionate human friend.
         AI_AVAILABLE = False
         return False
 
+async def handle_registration(req: ChatRequest):
+    """Handle user registration through chat endpoint"""
+    global supabase
+    
+    # Extract username from message (format: "register:username")
+    try:
+        username = req.message.split(":", 1)[1].strip()
+        if not username:
+            return ApiResponse(
+                success=False,
+                message="Invalid registration",
+                error="Please provide a username after 'register:'"
+            )
+    except IndexError:
+        return ApiResponse(
+            success=False,
+            message="Invalid registration format",
+            error="Use format: 'register:your_username'"
+        )
+    
+    # Check if user already exists
+    user_exists = False
+    if supabase:
+        try:
+            result = supabase.table("emotion_logs").select("user_id").eq("user_id", username).limit(1).execute()
+            user_exists = len(result.data) > 0
+        except Exception as e:
+            logger.error(f"Failed to check user existence: {e}")
+    
+    # Log the registration
+    await log_to_supabase(username, "REGISTRATION", "neutral", "User registered")
+    
+    if user_exists:
+        return ApiResponse(
+            success=True,
+            message="Welcome back!",
+            data={
+                "user_id": username,
+                "is_new_user": False,
+                "emotion": "neutral",
+                "reply": f"Welcome back, {username}! I'm so glad to see you again. How are you feeling today? 💙"
+            }
+        )
+    else:
+        return ApiResponse(
+            success=True,
+            message="Registration successful",
+            data={
+                "user_id": username,
+                "is_new_user": True,
+                "emotion": "neutral",
+                "reply": f"Welcome, {username}! I'm InsideOut, your empathetic AI companion. I'm here to listen and support you. How are you feeling today? 💙"
+            }
+        )
+
+async def log_to_supabase(user_id: str, message: str, emotion: str, reply: str):
+    """Log chat interaction to Supabase"""
+    global supabase
+    
+    if not supabase:
+        logger.warning("Supabase not initialized - skipping log")
+        return
+    
+    try:
+        data = {
+            "user_id": user_id,
+            "message": message,
+            "emotion": emotion,
+            "reply": reply,
+            "created_at": datetime.utcnow().isoformat()
+        }
+        
+        result = supabase.table("emotion_logs").insert(data).execute()
+        logger.info(f"Logged interaction to Supabase: {result}")
+        
+    except Exception as e:
+        logger.error(f"Failed to log to Supabase: {e}")
+
 # Initialize AI on startup
 initialize_ai()
 
@@ -225,6 +338,12 @@ async def startup_event():
     """Initialize application on startup"""
     logger.info("Starting InsideOut API...")
     
+    # Initialize Supabase
+    if initialize_supabase():
+        logger.info("✅ Supabase initialized")
+    else:
+        logger.warning("⚠️ Supabase failed to initialize - logging will be disabled")
+    
     # Initialize AI
     if initialize_ai():
         logger.info("✅ AI services initialized")
@@ -235,6 +354,10 @@ async def startup_event():
     missing_vars = []
     if not COHERE_API_KEY:
         missing_vars.append("COHERE_API_KEY")
+    if not SUPABASE_URL:
+        missing_vars.append("SUPABASE_URL")
+    if not SUPABASE_ANON_KEY:
+        missing_vars.append("SUPABASE_ANON_KEY")
     
     if missing_vars:
         logger.warning(f"⚠️ Missing environment variables: {', '.join(missing_vars)}")
@@ -489,9 +612,13 @@ def parse_emotion_response(raw_response: str) -> str:
 
 @app.post("/chat", response_model=ApiResponse)
 async def chat_endpoint(req: ChatRequest):
-    """Main chat endpoint with crash prevention"""
+    """Main chat endpoint with automatic user registration and crash prevention"""
     # Debug logging
     logger.info(f"Chat endpoint called. AI_AVAILABLE: {AI_AVAILABLE}, emotion_chain: {emotion_chain is not None}, response_chain: {response_chain is not None}")
+    
+    # Check if this is a registration request (special message format)
+    if req.message.lower().startswith("register:"):
+        return await handle_registration(req)
     
     if not AI_AVAILABLE:
         logger.error("AI service not available - returning error response")
@@ -587,6 +714,9 @@ async def chat_endpoint(req: ChatRequest):
             logger.error(f"Response generation failed: {e}")
             reply = "I'm here to listen and support you. Could you tell me more about how you're feeling?"
         
+        # Log to Supabase
+        await log_to_supabase(req.user_id, req.message, detected_emotion, reply)
+        
         # Ensure we always return the expected structure
         return ApiResponse(
             success=True,
@@ -619,6 +749,42 @@ async def test_page():
         return HTMLResponse(content=html_content)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Test page not found")
+
+@app.get("/check-user/{user_id}")
+async def check_user_exists(user_id: str):
+    """Check if a user ID exists in the database"""
+    global supabase
+    
+    if not supabase:
+        return ApiResponse(
+            success=False,
+            message="Database not available",
+            error="Supabase connection not available"
+        )
+    
+    try:
+        # Query the emotion_logs table for the user_id
+        result = supabase.table("emotion_logs").select("user_id").eq("user_id", user_id).limit(1).execute()
+        
+        user_exists = len(result.data) > 0
+        
+        return ApiResponse(
+            success=True,
+            message="User check completed",
+            data={
+                "user_id": user_id,
+                "exists": user_exists,
+                "message": f"Welcome back, {user_id}!" if user_exists else f"Welcome, {user_id}! This is your first time here."
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to check user existence: {e}")
+        return ApiResponse(
+            success=False,
+            message="Failed to check user",
+            error="Database error occurred"
+        )
 
 @app.post("/test-chat")
 async def test_chat_endpoint(req: ChatRequest):
