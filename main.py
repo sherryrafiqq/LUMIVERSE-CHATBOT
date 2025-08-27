@@ -49,6 +49,7 @@ load_dotenv("variables.env")
 COHERE_API_KEY = os.getenv("COHERE_API_KEY")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
 # Platform specific configurations
 IS_PYTHONANYWHERE = os.getenv("PYTHONANYWHERE_SITE", "").startswith("www.pythonanywhere.com")
@@ -163,21 +164,30 @@ llm = None
 emotion_chain = None
 response_chain = None
 
-# Initialize Supabase client
+# Initialize Supabase clients
 supabase = None
+supabase_admin = None
 
 def initialize_supabase():
-    """Initialize Supabase client"""
-    global supabase
+    """Initialize Supabase clients"""
+    global supabase, supabase_admin
     
     if not SUPABASE_URL or not SUPABASE_ANON_KEY:
         logger.warning("Supabase credentials not provided - logging disabled")
         return False
     
     try:
-        global supabase
+        # Regular client for reading data
         supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
         logger.info("Supabase client initialized successfully")
+        
+        # Admin client for creating users (if service role key available)
+        if SUPABASE_SERVICE_ROLE_KEY:
+            supabase_admin = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+            logger.info("Supabase admin client initialized successfully")
+        else:
+            logger.warning("SUPABASE_SERVICE_ROLE_KEY not found - user creation will be limited")
+        
         return True
     except Exception as e:
         logger.error(f"Failed to initialize Supabase: {e}")
@@ -248,9 +258,50 @@ Keep it SHORT and caring.
         AI_AVAILABLE = False
         return False
 
+async def create_user_with_auth(username: str):
+    """Create user through Supabase Auth and handle RLS properly"""
+    global supabase_admin
+    
+    try:
+        # Generate a unique email for the user
+        email = f"{username}@insideout.local"
+        
+        # Create user through Supabase Auth
+        auth_response = supabase_admin.auth.admin.create_user({
+            "email": email,
+            "password": f"temp_{username}_123!",  # Temporary password
+            "user_metadata": {
+                "username": username,
+                "display_name": username
+            }
+        })
+        
+        if auth_response.user:
+            user_id = auth_response.user.id
+            
+            # Insert user profile into users table using admin client
+            user_data = {
+                "id": user_id,
+                "username": username,
+                "email": email,
+                "created_at": datetime.utcnow().isoformat()
+            }
+            
+            result = supabase_admin.table("users").insert(user_data).execute()
+            logger.info(f"Created user profile: {result}")
+            
+            return user_id
+        else:
+            logger.error("Failed to create user through auth")
+            return None
+            
+    except Exception as e:
+        logger.error(f"Failed to create user with auth: {e}")
+        return None
+
 async def handle_registration(req: ChatRequest):
     """Handle user registration through chat endpoint"""
-    global supabase
+    global supabase, supabase_admin
     
     # Extract username from message (format: "register:username")
     try:
@@ -268,62 +319,58 @@ async def handle_registration(req: ChatRequest):
             error="Use format: 'register:your_username'"
         )
     
-    # Check if user already exists in users table
+    # Check if user already exists
     user_exists = False
     user_uuid = None
+    
     if supabase:
         try:
-            user_uuid = generate_user_uuid(username)
-            result = supabase.table("users").select("id").eq("id", user_uuid).limit(1).execute()
-            user_exists = len(result.data) > 0
+            # Check if user exists in users table
+            result = supabase.table("users").select("id, username").eq("username", username).limit(1).execute()
+            if len(result.data) > 0:
+                user_exists = True
+                user_uuid = result.data[0]["id"]
+                logger.info(f"User {username} already exists with ID: {user_uuid}")
         except Exception as e:
             logger.error(f"Failed to check user existence: {e}")
     
     # Create user if doesn't exist
-    if not user_exists and supabase:
+    if not user_exists and supabase_admin:
         try:
-            user_data = {
-                "id": user_uuid,
-                "username": username,
-                "email": f"{username}@example.com",  # Placeholder email
-                "created_at": datetime.utcnow().isoformat()
-            }
-            result = supabase.table("users").insert(user_data).execute()
-            logger.info(f"Created new user: {result}")
-            user_exists = True
+            user_uuid = await create_user_with_auth(username)
+            if user_uuid:
+                user_exists = True
+                logger.info(f"Created new user {username} with ID: {user_uuid}")
+            else:
+                logger.error(f"Failed to create user {username}")
         except Exception as e:
             logger.error(f"Failed to create user: {e}")
-            return ApiResponse(
-                success=False,
-                message="Registration failed",
-                error="Failed to create user account"
-            )
     
-    # Log the registration to emotion_logs
-    if user_exists:
-        await log_to_supabase(username, "REGISTRATION", "neutral", "User registered")
+    # Log the registration
+    if user_exists and user_uuid:
+        try:
+            await log_to_supabase(user_uuid, "REGISTRATION", "neutral", "User registered")
+            logger.info(f"Registration logged for user: {username}")
+        except Exception as e:
+            logger.warning(f"Could not log registration for {username}: {e}")
     
+    # Return appropriate response
     if user_exists:
         return ApiResponse(
             success=True,
-            message="Welcome back!",
+            message="Welcome back!" if user_uuid else "Registration successful",
             data={
                 "user_id": username,
-                "is_new_user": False,
+                "is_new_user": not user_uuid,
                 "emotion": "neutral",
-                "reply": f"Welcome back, {username}! I'm so glad to see you again. How are you feeling today? 💙"
+                "reply": f"Welcome back, {username}! I'm so glad to see you again. How are you feeling today? 💙" if user_uuid else f"Welcome, {username}! I'm InsideOut, your empathetic AI companion. I'm here to listen and support you. How are you feeling today? 💙"
             }
         )
     else:
         return ApiResponse(
-            success=True,
-            message="Registration successful",
-            data={
-                "user_id": username,
-                "is_new_user": True,
-                "emotion": "neutral",
-                "reply": f"Welcome, {username}! I'm InsideOut, your empathetic AI companion. I'm here to listen and support you. How are you feeling today? 💙"
-            }
+            success=False,
+            message="Registration failed",
+            error="Could not create user account. Please try again."
         )
 
 def generate_user_uuid(username: str) -> str:
@@ -340,25 +387,20 @@ async def log_to_supabase(user_id: str, message: str, emotion: str, reply: str):
         return
     
     try:
-        # Generate UUID for user_id
-        user_uuid = generate_user_uuid(user_id)
+        # user_id should already be a UUID from the users table
+        # If it's a username, we need to look up the actual user ID
+        if not user_id.startswith("00000000-0000-0000-0000-000000000000") and len(user_id) != 36:
+            # This is a username, look up the user ID
+            result = supabase.table("users").select("id").eq("username", user_id).limit(1).execute()
+            if len(result.data) > 0:
+                user_uuid = result.data[0]["id"]
+            else:
+                logger.error(f"User {user_id} not found in users table")
+                return
+        else:
+            user_uuid = user_id
         
-        # Ensure user exists in users table first
-        try:
-            user_check = supabase.table("users").select("id").eq("id", user_uuid).limit(1).execute()
-            if len(user_check.data) == 0:
-                # Create user if doesn't exist
-                user_data = {
-                    "id": user_uuid,
-                    "username": user_id,
-                    "email": f"{user_id}@example.com",  # Placeholder email
-                    "created_at": datetime.utcnow().isoformat()
-                }
-                supabase.table("users").insert(user_data).execute()
-                logger.info(f"Created user {user_id} for logging")
-        except Exception as e:
-            logger.error(f"Failed to ensure user exists: {e}")
-            return
+        logger.info(f"Logging emotion for user {user_id} (UUID: {user_uuid})")
         
         # Insert data matching your table schema
         data = {
@@ -406,6 +448,8 @@ async def startup_event():
         missing_vars.append("SUPABASE_URL")
     if not SUPABASE_ANON_KEY:
         missing_vars.append("SUPABASE_ANON_KEY")
+    if not SUPABASE_SERVICE_ROLE_KEY:
+        missing_vars.append("SUPABASE_SERVICE_ROLE_KEY")
     
     if missing_vars:
         logger.warning(f"⚠️ Missing environment variables: {', '.join(missing_vars)}")
@@ -797,9 +841,8 @@ async def check_user_exists(user_id: str):
         )
     
     try:
-        # Query the users table for the user_id
-        user_uuid = generate_user_uuid(user_id)
-        result = supabase.table("users").select("id").eq("id", user_uuid).limit(1).execute()
+        # Query the users table for the username
+        result = supabase.table("users").select("id, username").eq("username", user_id).limit(1).execute()
         
         user_exists = len(result.data) > 0
         
