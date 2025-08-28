@@ -672,9 +672,10 @@ async def chat_endpoint(req: ChatRequest):
         # Load last 5 messages for this user for context
         history_text = ""
         try:
-            if supabase and req.user_id:
+            if (supabase or supabase_admin) and req.user_id:
+                client = supabase_admin or supabase
                 history_result = (
-                    supabase
+                    client
                     .table("emotion_logs")
                     .select("message, created_at")
                     .eq("user_id", req.user_id)

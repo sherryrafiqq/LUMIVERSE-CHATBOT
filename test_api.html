@@ -382,9 +382,18 @@
             <p><strong>Base URL:</strong> <span id="baseUrl">Loading...</span></p>
             <p><strong>Status:</strong> <span id="apiStatus">Checking...</span></p>
             <p><strong>AI Available:</strong> <span id="aiStatus">Checking...</span></p>
+            <p><strong>Current User ID:</strong> <span id="currentUserId">(loading)</span></p>
         </div>
 
-        <!-- Registration UI removed -->
+        <div class="user-info">
+            <h3>👤 Test User</h3>
+            <div class="user-input-group">
+                <label for="userIdInput">User ID</label>
+                <input type="text" id="userIdInput" class="user-id-input" placeholder="Enter a UUID from your app" />
+                <button id="setUserBtn" class="set-user-btn">Set</button>
+            </div>
+            <div id="userStatus" class="user-status new-user" style="display:none;"></div>
+        </div>
 
         <div id="status" class="status" style="display: none;"></div>
 
@@ -432,8 +441,8 @@
         const aiStatusSpan = document.getElementById('aiStatus');
         // Registration elements removed
 
-        // Dummy user ID for testing (replace with Flutter-provided user_id)
-        let userId = 'd32d5387-94a0-4ce2-ad40-12e205bd25ae';
+        // User ID for testing: persisted in localStorage; defaults to a dummy UUID
+        let userId = localStorage.getItem('insideout_user_id') || 'd32d5387-94a0-4ce2-ad40-12e205bd25ae';
 
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
