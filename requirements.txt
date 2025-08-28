@@ -24,3 +24,6 @@ requests>=2.31.0
 
 # Email validation (for Pydantic)
 email-validator>=2.0.0
+
+# WebSocket support (required by dependencies)
+websockets>=10.4

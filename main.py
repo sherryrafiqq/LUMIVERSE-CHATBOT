@@ -229,27 +229,33 @@ Respond with ONLY one word: joy, sadness, anger, fear, disgust, or neutral
 """)
 
         response_prompt = PromptTemplate.from_template("""
-You are InsideOut, a warm and empathetic AI companion. Keep responses SHORT - maximum 3 sentences only.
+You are InsideOut, a warm and empathetic AI companion. Keep responses SHORT (max 4 sentences), REACTIVE, and helpful.
 
-User's message: {message}
+CONTEXT (previous 5 messages if available):
+{history}
+
+User's current message: {message}
 Detected emotion: {emotion}
 
 RESPONSE RULES:
-- MAXIMUM 5 SENTENCES ONLY
+- MAXIMUM 4 SENTENCES ONLY
 - Use 1-2 emojis maximum
-- Be warm and caring and offer to help.
+- Acknowledge their emotion and the latest message context
+- Always proactively ask if they want help and offer it
+- If they indicate they want help, provide 1-2 actionable, simple steps
+- End with a caring, specific question that invites a short reply
 
-For each emotion:
-JOY: "I'm so happy for you! 😊 [1-2 sentences sharing their joy]"
-SADNESS: "I'm really sorry you're feeling this way. 💙 [1-2 sentences offering comfort]"
-ANGER: "I understand why you'd feel angry about that. 😤 [1-2 sentences validating feelings]"
-FEAR: "That sounds really scary, and it's okay to feel afraid. 😰 [1-2 sentences offering reassurance]"
-DISGUST: "That's definitely upsetting. 😣 [1-2 sentences validating reaction]"
-NEUTRAL: "How are you really feeling today? 🤔 [1-2 sentences inviting sharing]"
+For each emotion, adapt tone:
+JOY: "I'm so happy for you! 😊 [share their joy briefly]"
+SADNESS: "I'm really sorry you're feeling this way. 💙 [offer comfort]"
+ANGER: "I understand why you'd feel angry about that. 😤 [validate feelings]"
+FEAR: "That sounds really scary. 😰 [offer reassurance]"
+DISGUST: "That's definitely upsetting. 😣 [validate reaction]"
+NEUTRAL: "Thanks for sharing. 🤔 [invite sharing]"
 
 CRISIS: If suicidal/self-harm thoughts: "I'm really worried about you. 💙 Please call Egypt's mental health hotlines: 16328, 105, or 15335, or visit https://mentalhealth.mohp.gov.eg/. You're not alone and things will get better."
 
-Keep it SHORT and caring.
+Keep it SHORT, caring, and proactive.
 """)
 
         emotion_chain = emotion_prompt | llm
@@ -274,12 +280,17 @@ def _format_history(messages: List[Dict[str, Any]]) -> str:
     parts = []
     for row in messages:
         text = (row.get("message") or "").strip()
+        ts = (row.get("created_at") or "").strip()
         if not text:
             continue
-        parts.append(f"- {text}")
+        # Include timestamp when available
+        if ts:
+            parts.append(f"- [{ts}] {text}")
+        else:
+            parts.append(f"- {text}")
     if not parts:
         return ""
-    return "Previous messages (same session):\n" + "\n".join(parts) + "\n\n"
+    return "Previous messages (same user, most recent 5):\n" + "\n".join(parts) + "\n\n"
 
 async def log_to_supabase(user_id: str, message: str, emotion: str, reply: str):
     """Log chat interaction to Supabase using user_id only"""
@@ -658,17 +669,34 @@ async def chat_endpoint(req: ChatRequest):
             logger.error(f"Emotion detection failed: {e}")
             detected_emotion = 'neutral'
         
-        # Session history removed: responses are based only on current message
+        # Load last 5 messages for this user for context
+        history_text = ""
+        try:
+            if supabase and req.user_id:
+                history_result = (
+                    supabase
+                    .table("emotion_logs")
+                    .select("message, created_at")
+                    .eq("user_id", req.user_id)
+                    .order("created_at", desc=True)
+                    .limit(5)
+                    .execute()
+                )
+                # Reverse to chronological order (oldest first)
+                recent = list(reversed(history_result.data or []))
+                history_text = _format_history(recent)
+        except Exception as e:
+            logger.warning(f"Failed to load user history: {e}")
 
         # Generate response (simplified without asyncio). Include history in message field.
         reply = "I'm here to listen and support you. Could you tell me more about how you're feeling?"
         try:
             start_time = time.time()
             # Direct call to response chain
-            combined_message = req.message
             bot_response = response_chain.invoke({
                 "emotion": detected_emotion,
-                "message": combined_message
+                "message": req.message,
+                "history": history_text
             })
             response_time = time.time() - start_time
             logger.info(f"Response generated in {response_time:.2f} seconds")
