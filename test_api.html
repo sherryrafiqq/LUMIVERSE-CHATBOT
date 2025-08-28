@@ -448,7 +448,8 @@
         const userStatusDiv = document.getElementById('userStatus');
 
         // User ID management
-        let currentUserId = 'test_user_' + Date.now();
+        // Will hold UUID when available
+        let currentUserId = 'anonymous';
 
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
@@ -499,7 +500,7 @@
                 const data = await response.json();
                 
                 if (data.success) {
-                    currentUserId = username;
+                    currentUserId = data.data?.user_id || currentUserId;
                     if (data.data.is_new_user) {
                         showUserStatus(`✅ Registration successful! Welcome, ${username}!`, 'new-user');
                         addMessage(data.data.reply, 'bot', 'neutral');
@@ -533,6 +534,7 @@
                 
                 if (data.success) {
                     if (data.data.exists) {
+                        currentUserId = data.data.user_id || currentUserId;
                         showUserStatus(data.data.message, 'welcome-back');
                     } else {
                         showUserStatus(data.data.message, 'new-user');

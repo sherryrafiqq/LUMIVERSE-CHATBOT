@@ -363,16 +363,23 @@ async def handle_registration(req: ChatRequest):
         except Exception as e:
             logger.warning(f"Could not log registration for {username}: {e}")
     
-    # Return appropriate response
+    # Return appropriate response (ensure user_id is the UUID from users table)
     if user_exists:
+        is_new_user = False if user_uuid else True
+        message_text = (
+            f"Welcome back, {username}! I'm so glad to see you again. How are you feeling today? 💙"
+            if user_uuid else
+            f"Welcome, {username}! I'm InsideOut, your empathetic AI companion. I'm here to listen and support you. How are you feeling today? 💙"
+        )
         return ApiResponse(
             success=True,
-            message="Welcome back!" if user_uuid else "Registration successful",
+            message="Registration successful" if is_new_user else "Welcome back!",
             data={
-                "user_id": username,
-                "is_new_user": not user_uuid,
+                "user_id": user_uuid if user_uuid else generate_user_uuid(username),
+                "username": username,
+                "is_new_user": is_new_user,
                 "emotion": "neutral",
-                "reply": f"Welcome back, {username}! I'm so glad to see you again. How are you feeling today? 💙" if user_uuid else f"Welcome, {username}! I'm InsideOut, your empathetic AI companion. I'm here to listen and support you. How are you feeling today? 💙"
+                "reply": message_text
             }
         )
     else:
@@ -868,10 +875,12 @@ async def unified_api(req: UnifiedRequest):
         if not supabase:
             return ApiResponse(success=False, message="Database not available", error="Supabase connection not available")
         try:
-            result = supabase.table("users").select("id, username").eq("username", username).limit(1).execute()
+            result = supabase.table("users").select("id, username, email, created_at").eq("username", username).limit(1).execute()
             exists = len(result.data) > 0
-            data = {"user_id": username, "exists": exists}
+            data = {"user_id": result.data[0]["id"] if exists else None, "username": username, "exists": exists}
             if exists:
+                data["email"] = result.data[0].get("email")
+                data["created_at"] = result.data[0].get("created_at")
                 data["message"] = f"Welcome back, {username}!"
             else:
                 data["message"] = f"Welcome, {username}! This is your first time here."
@@ -898,6 +907,7 @@ async def unified_api(req: UnifiedRequest):
 
     # CHAT: default chat flow
     if action == "chat":
+        # Prefer UUID user_id if provided; fallback to username which will be resolved in logging
         chat_req = ChatRequest(message=req.message or "", user_id=(req.user_id or req.username or "anonymous"))
         return await chat_endpoint(chat_req)
 
