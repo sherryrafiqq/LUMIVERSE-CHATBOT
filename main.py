@@ -154,6 +154,15 @@ class ChatRequest(BaseModel):
             raise ValueError('Message too long (max 1000 characters)')
         return v.strip()
 
+class UnifiedRequest(BaseModel):
+    """Unified request supporting multiple actions via one endpoint"""
+    action: str  # register | login | auth | chat | sentiment
+    message: Optional[str] = None
+    user_id: Optional[str] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
+    token: Optional[str] = None
+
 # -------------------------
 # 🤖 AI Configuration (Optimized for Speed)
 # -------------------------
@@ -833,6 +842,66 @@ async def test_page():
         return HTMLResponse(content=html_content)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Test page not found")
+
+@app.post("/api", response_model=ApiResponse)
+async def unified_api(req: UnifiedRequest):
+    """Unified endpoint handling registration, login/auth, chatbot, and sentiment classification"""
+    action = (req.action or "").strip().lower()
+
+    if action not in {"register", "login", "auth", "chat", "sentiment"}:
+        return ApiResponse(success=False, message="Invalid action", error="Supported actions: register, login, auth, chat, sentiment")
+
+    # REGISTER: create or fetch user using existing flow
+    if action == "register":
+        username = (req.username or req.user_id or "").strip()
+        if not username:
+            return ApiResponse(success=False, message="Invalid registration", error="username is required")
+        # Reuse existing registration handler by building a ChatRequest with special message format
+        chat_req = ChatRequest(message=f"register:{username}", user_id=username)
+        return await handle_registration(chat_req)
+
+    # LOGIN or AUTH: verify user existence (basic auth check)
+    if action in {"login", "auth"}:
+        username = (req.username or req.user_id or "").strip()
+        if not username:
+            return ApiResponse(success=False, message="Invalid request", error="username is required")
+        if not supabase:
+            return ApiResponse(success=False, message="Database not available", error="Supabase connection not available")
+        try:
+            result = supabase.table("users").select("id, username").eq("username", username).limit(1).execute()
+            exists = len(result.data) > 0
+            data = {"user_id": username, "exists": exists}
+            if exists:
+                data["message"] = f"Welcome back, {username}!"
+            else:
+                data["message"] = f"Welcome, {username}! This is your first time here."
+            return ApiResponse(success=True, message="Auth check completed", data=data)
+        except Exception as e:
+            logger.error(f"Auth/login check failed: {e}")
+            return ApiResponse(success=False, message="Auth check failed", error="Database error occurred")
+
+    # SENTIMENT: run emotion detection only
+    if action == "sentiment":
+        if not AI_AVAILABLE:
+            return ApiResponse(success=False, message="AI unavailable", error="AI service is not available")
+        text = (req.message or "").strip()
+        if not text:
+            return ApiResponse(success=False, message="Invalid message", error="message is required")
+        try:
+            emotion_result = emotion_chain.invoke({"message": text})
+            raw_emotion = emotion_result.content.strip()
+            detected_emotion = parse_emotion_response(raw_emotion)
+            return ApiResponse(success=True, message="Sentiment classified", data={"emotion": detected_emotion})
+        except Exception as e:
+            logger.error(f"Sentiment classification failed: {e}")
+            return ApiResponse(success=False, message="Classification failed", error="Unable to classify sentiment right now")
+
+    # CHAT: default chat flow
+    if action == "chat":
+        chat_req = ChatRequest(message=req.message or "", user_id=(req.user_id or req.username or "anonymous"))
+        return await chat_endpoint(chat_req)
+
+    return ApiResponse(success=False, message="Unhandled action", error="Unknown error")
 
 @app.get("/check-user/{user_id}")
 async def check_user_exists(user_id: str):

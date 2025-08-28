@@ -429,7 +429,7 @@
         const API_BASE_URL = window.location.origin;
         const ENDPOINTS = {
             health: '/health',
-            chat: '/chat',
+            api: '/api',
             start: '/start'
         };
 
@@ -485,14 +485,14 @@
             }
 
             try {
-                const response = await fetch(`${API_BASE_URL}${ENDPOINTS.chat}`, {
+                const response = await fetch(`${API_BASE_URL}${ENDPOINTS.api}`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ 
-                        message: `register:${username}`,
-                        user_id: username
+                    body: JSON.stringify({
+                        action: 'register',
+                        username: username
                     })
                 });
 
@@ -524,7 +524,11 @@
             }
 
             try {
-                const response = await fetch(`${API_BASE_URL}/check-user/${userId}`);
+                const response = await fetch(`${API_BASE_URL}${ENDPOINTS.api}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'auth', username: userId })
+                });
                 const data = await response.json();
                 
                 if (data.success) {
@@ -592,12 +596,13 @@
             messageInput.value = '';
 
             try {
-                const response = await fetch(`${API_BASE_URL}${ENDPOINTS.chat}`, {
+                const response = await fetch(`${API_BASE_URL}${ENDPOINTS.api}`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ 
+                    body: JSON.stringify({
+                        action: 'chat',
                         message: message,
                         user_id: currentUserId
                     })
