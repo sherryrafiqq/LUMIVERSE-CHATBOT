@@ -127,9 +127,13 @@ An empathetic AI chatbot built with FastAPI that provides emotional support and 
 
 ### Send a message
 ```bash
-curl -X POST "https://your-app.railway.app/chat" \
+curl -X POST "https://your-app.railway.app/api" \
   -H "Content-Type: application/json" \
-  -d '{"message": "I am feeling sad today"}'
+  -d '{
+    "action": "chat",
+    "user_id": "d32d5387-94a0-4ce2-ad40-12e205bd25ae",
+    "message": "I feel stressed"
+  }'
 ```
 
 ### Response format
@@ -142,6 +146,16 @@ curl -X POST "https://your-app.railway.app/chat" \
     "reply": "I'm so sorry you're feeling sad today. 💙 It's completely okay to feel this way, and I'm here to listen..."
   },
   "timestamp": "2024-01-01T12:00:00.000000"
+}
+```
+
+### Request format
+
+```json
+{
+  "action": "chat",
+  "user_id": "d32d5387-94a0-4ce2-ad40-12e205bd25ae",
+  "message": "I feel stressed"
 }
 ```
 

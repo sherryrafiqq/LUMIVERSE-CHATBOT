@@ -142,7 +142,7 @@ class ApiResponse(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
-    session_id: str  # Required per session
+    user_id: str  # Provided by client app
     
     @field_validator('message')
     @classmethod
@@ -157,7 +157,7 @@ class UnifiedRequest(BaseModel):
     """Unified request supporting multiple actions via one endpoint"""
     action: str  # chat | sentiment
     message: Optional[str] = None
-    session_id: Optional[str] = None
+    user_id: Optional[str] = None
 
 # -------------------------
 # 🤖 AI Configuration (Optimized for Speed)
@@ -281,8 +281,8 @@ def _format_history(messages: List[Dict[str, Any]]) -> str:
         return ""
     return "Previous messages (same session):\n" + "\n".join(parts) + "\n\n"
 
-async def log_to_supabase(session_id: str, message: str, emotion: str, reply: str):
-    """Log chat interaction to Supabase using session_id only"""
+async def log_to_supabase(user_id: str, message: str, emotion: str, reply: str):
+    """Log chat interaction to Supabase using user_id only"""
     global supabase, supabase_admin
     
     if not supabase:
@@ -290,10 +290,10 @@ async def log_to_supabase(session_id: str, message: str, emotion: str, reply: st
         return
     
     try:
-        logger.info(f"Logging interaction for session {session_id}")
+        logger.info(f"Logging interaction for user {user_id}")
         # Insert data matching table schema (session-based)
         data = {
-            "session_id": session_id,
+            "user_id": user_id,
             "message": message,
             "emotion": emotion,
             "created_at": datetime.utcnow().isoformat()
@@ -658,29 +658,14 @@ async def chat_endpoint(req: ChatRequest):
             logger.error(f"Emotion detection failed: {e}")
             detected_emotion = 'neutral'
         
-        # Build session history (previous messages for this session)
-        history_text = ""
-        try:
-            if supabase and req.session_id:
-                history_result = (
-                    supabase
-                    .table("emotion_logs")
-                    .select("message, created_at")
-                    .eq("session_id", req.session_id)
-                    .order("created_at", desc=False)
-                    .limit(20)
-                    .execute()
-                )
-                history_text = _format_history(history_result.data)
-        except Exception as e:
-            logger.warning(f"Failed to load session history: {e}")
+        # Session history removed: responses are based only on current message
 
         # Generate response (simplified without asyncio). Include history in message field.
         reply = "I'm here to listen and support you. Could you tell me more about how you're feeling?"
         try:
             start_time = time.time()
             # Direct call to response chain
-            combined_message = f"{history_text}Current message: {req.message}" if history_text else req.message
+            combined_message = req.message
             bot_response = response_chain.invoke({
                 "emotion": detected_emotion,
                 "message": combined_message
@@ -701,8 +686,8 @@ async def chat_endpoint(req: ChatRequest):
             logger.error(f"Response generation failed: {e}")
             reply = "I'm here to listen and support you. Could you tell me more about how you're feeling?"
         
-        # Log to Supabase (session only)
-        await log_to_supabase(req.session_id, req.message, detected_emotion, reply)
+        # Log to Supabase (user only)
+        await log_to_supabase(req.user_id, req.message, detected_emotion, reply)
         
         # Ensure we always return the expected structure
         return ApiResponse(
@@ -763,7 +748,7 @@ async def unified_api(req: UnifiedRequest):
 
     # CHAT: default chat flow
     if action == "chat":
-        chat_req = ChatRequest(message=req.message or "", session_id=(req.session_id or ""))
+        chat_req = ChatRequest(message=req.message or "", user_id=(req.user_id or ""))
         return await chat_endpoint(chat_req)
 
     return ApiResponse(success=False, message="Unhandled action", error="Unknown error")
@@ -778,6 +763,7 @@ async def test_chat_endpoint(req: ChatRequest):
         message="Test chat endpoint working",
         data={
             "message": req.message,
+            "user_id": req.user_id,
             "test": "This endpoint works without auth"
         }
     )

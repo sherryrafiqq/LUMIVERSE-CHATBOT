@@ -432,8 +432,8 @@
         const aiStatusSpan = document.getElementById('aiStatus');
         // Registration elements removed
 
-        // Session ID management (per page load)
-        let sessionId = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        // Dummy user ID for testing (replace with Flutter-provided user_id)
+        let userId = 'd32d5387-94a0-4ce2-ad40-12e205bd25ae';
 
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
@@ -502,7 +502,7 @@
                     body: JSON.stringify({
                         action: 'chat',
                         message: message,
-                        session_id: sessionId
+                        user_id: userId
                     })
                 });
 
