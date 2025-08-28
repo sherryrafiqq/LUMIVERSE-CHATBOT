@@ -685,6 +685,14 @@ async def chat_endpoint(req: ChatRequest):
                 # Reverse to chronological order (oldest first)
                 recent = list(reversed(history_result.data or []))
                 history_text = _format_history(recent)
+                # Log how many messages we loaded and a preview of the history context
+                logger.info(
+                    f"Loaded {len(recent)} prior messages for user {req.user_id} for context"
+                )
+                if history_text:
+                    logger.debug(
+                        "History context passed to model:\n" + history_text
+                    )
         except Exception as e:
             logger.warning(f"Failed to load user history: {e}")
 
