@@ -32,7 +32,6 @@ try:
     from langchain_cohere import ChatCohere
     from supabase import create_client
     import traceback
-    import uuid
     from dotenv import load_dotenv
 except ImportError as e:
     logger.error(f"Import error: {e}")
@@ -143,7 +142,7 @@ class ApiResponse(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
-    user_id: str = "anonymous"  # Default to anonymous if not provided
+    session_id: str  # Required per session
     
     @field_validator('message')
     @classmethod
@@ -156,12 +155,9 @@ class ChatRequest(BaseModel):
 
 class UnifiedRequest(BaseModel):
     """Unified request supporting multiple actions via one endpoint"""
-    action: str  # register | login | auth | chat | sentiment
+    action: str  # chat | sentiment
     message: Optional[str] = None
-    user_id: Optional[str] = None
-    username: Optional[str] = None
-    password: Optional[str] = None
-    token: Optional[str] = None
+    session_id: Optional[str] = None
 
 # -------------------------
 # 🤖 AI Configuration (Optimized for Speed)
@@ -267,135 +263,26 @@ Keep it SHORT and caring.
         AI_AVAILABLE = False
         return False
 
-async def create_user_with_auth(username: str):
-    """Create user through Supabase Auth and handle RLS properly"""
-    global supabase_admin
-    
-    try:
-        # Generate a unique email for the user
-        email = f"{username}@insideout.local"
-        
-        # Create user through Supabase Auth
-        auth_response = supabase_admin.auth.admin.create_user({
-            "email": email,
-            "password": f"temp_{username}_123!",  # Temporary password
-            "user_metadata": {
-                "username": username,
-                "display_name": username
-            }
-        })
-        
-        if auth_response.user:
-            user_id = auth_response.user.id
-            
-            # Insert user profile into users table using admin client
-            user_data = {
-                "id": user_id,
-                "username": username,
-                "email": email,
-                "created_at": datetime.utcnow().isoformat()
-            }
-            
-            result = supabase_admin.table("users").insert(user_data).execute()
-            logger.info(f"Created user profile: {result}")
-            
-            return user_id
-        else:
-            logger.error("Failed to create user through auth")
-            return None
-            
-    except Exception as e:
-        logger.error(f"Failed to create user with auth: {e}")
-        return None
+# Registration and user management removed
 
-async def handle_registration(req: ChatRequest):
-    """Handle user registration through chat endpoint"""
-    global supabase, supabase_admin
-    
-    # Extract username from message (format: "register:username")
-    try:
-        username = req.message.split(":", 1)[1].strip()
-        if not username:
-            return ApiResponse(
-                success=False,
-                message="Invalid registration",
-                error="Please provide a username after 'register:'"
-            )
-    except IndexError:
-        return ApiResponse(
-            success=False,
-            message="Invalid registration format",
-            error="Use format: 'register:your_username'"
-        )
-    
-    # Check if user already exists
-    user_exists = False
-    user_uuid = None
-    
-    if supabase:
-        try:
-            # Check if user exists in users table
-            result = supabase.table("users").select("id, username").eq("username", username).limit(1).execute()
-            if len(result.data) > 0:
-                user_exists = True
-                user_uuid = result.data[0]["id"]
-                logger.info(f"User {username} already exists with ID: {user_uuid}")
-        except Exception as e:
-            logger.error(f"Failed to check user existence: {e}")
-    
-    # Create user if doesn't exist
-    if not user_exists and supabase_admin:
-        try:
-            user_uuid = await create_user_with_auth(username)
-            if user_uuid:
-                user_exists = True
-                logger.info(f"Created new user {username} with ID: {user_uuid}")
-            else:
-                logger.error(f"Failed to create user {username}")
-        except Exception as e:
-            logger.error(f"Failed to create user: {e}")
-    
-    # Log the registration
-    if user_exists and user_uuid:
-        try:
-            await log_to_supabase(user_uuid, "REGISTRATION", "neutral", "User registered")
-            logger.info(f"Registration logged for user: {username}")
-        except Exception as e:
-            logger.warning(f"Could not log registration for {username}: {e}")
-    
-    # Return appropriate response (ensure user_id is the UUID from users table)
-    if user_exists:
-        is_new_user = False if user_uuid else True
-        message_text = (
-            f"Welcome back, {username}! I'm so glad to see you again. How are you feeling today? 💙"
-            if user_uuid else
-            f"Welcome, {username}! I'm InsideOut, your empathetic AI companion. I'm here to listen and support you. How are you feeling today? 💙"
-        )
-        return ApiResponse(
-            success=True,
-            message="Registration successful" if is_new_user else "Welcome back!",
-            data={
-                "user_id": user_uuid if user_uuid else generate_user_uuid(username),
-                "username": username,
-                "is_new_user": is_new_user,
-                "emotion": "neutral",
-                "reply": message_text
-            }
-        )
-    else:
-        return ApiResponse(
-            success=False,
-            message="Registration failed",
-            error="Could not create user account. Please try again."
-        )
+# Registration handler removed
 
-def generate_user_uuid(username: str) -> str:
-    """Generate a consistent UUID for a username"""
-    # Use a deterministic UUID based on the username
-    return str(uuid.uuid5(uuid.NAMESPACE_DNS, username))
+def _format_history(messages: List[Dict[str, Any]]) -> str:
+    """Format prior messages into a compact context string."""
+    if not messages:
+        return ""
+    parts = []
+    for row in messages:
+        text = (row.get("message") or "").strip()
+        if not text:
+            continue
+        parts.append(f"- {text}")
+    if not parts:
+        return ""
+    return "Previous messages (same session):\n" + "\n".join(parts) + "\n\n"
 
-async def log_to_supabase(user_id: str, message: str, emotion: str, reply: str):
-    """Log chat interaction to Supabase"""
+async def log_to_supabase(session_id: str, message: str, emotion: str, reply: str):
+    """Log chat interaction to Supabase using session_id only"""
     global supabase, supabase_admin
     
     if not supabase:
@@ -403,24 +290,10 @@ async def log_to_supabase(user_id: str, message: str, emotion: str, reply: str):
         return
     
     try:
-        # user_id should already be a UUID from the users table
-        # If it's a username, we need to look up the actual user ID
-        if not user_id.startswith("00000000-0000-0000-0000-000000000000") and len(user_id) != 36:
-            # This is a username, look up the user ID
-            result = supabase.table("users").select("id").eq("username", user_id).limit(1).execute()
-            if len(result.data) > 0:
-                user_uuid = result.data[0]["id"]
-            else:
-                logger.error(f"User {user_id} not found in users table")
-                return
-        else:
-            user_uuid = user_id
-        
-        logger.info(f"Logging emotion for user {user_id} (UUID: {user_uuid})")
-        
-        # Insert data matching your table schema
+        logger.info(f"Logging interaction for session {session_id}")
+        # Insert data matching table schema (session-based)
         data = {
-            "user_id": user_uuid,
+            "session_id": session_id,
             "message": message,
             "emotion": emotion,
             "created_at": datetime.utcnow().isoformat()
@@ -730,10 +603,6 @@ async def chat_endpoint(req: ChatRequest):
     # Debug logging
     logger.info(f"Chat endpoint called. AI_AVAILABLE: {AI_AVAILABLE}, emotion_chain: {emotion_chain is not None}, response_chain: {response_chain is not None}")
     
-    # Check if this is a registration request (special message format)
-    if req.message.lower().startswith("register:"):
-        return await handle_registration(req)
-    
     if not AI_AVAILABLE:
         logger.error("AI service not available - returning error response")
         return ApiResponse(
@@ -763,7 +632,7 @@ async def chat_endpoint(req: ChatRequest):
                 error="Message must be less than 1000 characters"
             )
         
-        # Get emotion detection (simplified without asyncio)
+        # Get emotion detection for current message only
         detected_emotion = 'neutral'
         try:
             # Direct call to emotion chain
@@ -789,14 +658,32 @@ async def chat_endpoint(req: ChatRequest):
             logger.error(f"Emotion detection failed: {e}")
             detected_emotion = 'neutral'
         
-        # Generate response (simplified without asyncio)
+        # Build session history (previous messages for this session)
+        history_text = ""
+        try:
+            if supabase and req.session_id:
+                history_result = (
+                    supabase
+                    .table("emotion_logs")
+                    .select("message, created_at")
+                    .eq("session_id", req.session_id)
+                    .order("created_at", desc=False)
+                    .limit(20)
+                    .execute()
+                )
+                history_text = _format_history(history_result.data)
+        except Exception as e:
+            logger.warning(f"Failed to load session history: {e}")
+
+        # Generate response (simplified without asyncio). Include history in message field.
         reply = "I'm here to listen and support you. Could you tell me more about how you're feeling?"
         try:
             start_time = time.time()
             # Direct call to response chain
+            combined_message = f"{history_text}Current message: {req.message}" if history_text else req.message
             bot_response = response_chain.invoke({
                 "emotion": detected_emotion,
-                "message": req.message
+                "message": combined_message
             })
             response_time = time.time() - start_time
             logger.info(f"Response generated in {response_time:.2f} seconds")
@@ -814,8 +701,8 @@ async def chat_endpoint(req: ChatRequest):
             logger.error(f"Response generation failed: {e}")
             reply = "I'm here to listen and support you. Could you tell me more about how you're feeling?"
         
-        # Log to Supabase
-        await log_to_supabase(req.user_id, req.message, detected_emotion, reply)
+        # Log to Supabase (session only)
+        await log_to_supabase(req.session_id, req.message, detected_emotion, reply)
         
         # Ensure we always return the expected structure
         return ApiResponse(
@@ -852,42 +739,11 @@ async def test_page():
 
 @app.post("/api", response_model=ApiResponse)
 async def unified_api(req: UnifiedRequest):
-    """Unified endpoint handling registration, login/auth, chatbot, and sentiment classification"""
+    """Unified endpoint handling chatbot and sentiment classification (no registration/auth)"""
     action = (req.action or "").strip().lower()
 
-    if action not in {"register", "login", "auth", "chat", "sentiment"}:
-        return ApiResponse(success=False, message="Invalid action", error="Supported actions: register, login, auth, chat, sentiment")
-
-    # REGISTER: create or fetch user using existing flow
-    if action == "register":
-        username = (req.username or req.user_id or "").strip()
-        if not username:
-            return ApiResponse(success=False, message="Invalid registration", error="username is required")
-        # Reuse existing registration handler by building a ChatRequest with special message format
-        chat_req = ChatRequest(message=f"register:{username}", user_id=username)
-        return await handle_registration(chat_req)
-
-    # LOGIN or AUTH: verify user existence (basic auth check)
-    if action in {"login", "auth"}:
-        username = (req.username or req.user_id or "").strip()
-        if not username:
-            return ApiResponse(success=False, message="Invalid request", error="username is required")
-        if not supabase:
-            return ApiResponse(success=False, message="Database not available", error="Supabase connection not available")
-        try:
-            result = supabase.table("users").select("id, username, email, created_at").eq("username", username).limit(1).execute()
-            exists = len(result.data) > 0
-            data = {"user_id": result.data[0]["id"] if exists else None, "username": username, "exists": exists}
-            if exists:
-                data["email"] = result.data[0].get("email")
-                data["created_at"] = result.data[0].get("created_at")
-                data["message"] = f"Welcome back, {username}!"
-            else:
-                data["message"] = f"Welcome, {username}! This is your first time here."
-            return ApiResponse(success=True, message="Auth check completed", data=data)
-        except Exception as e:
-            logger.error(f"Auth/login check failed: {e}")
-            return ApiResponse(success=False, message="Auth check failed", error="Database error occurred")
+    if action not in {"chat", "sentiment"}:
+        return ApiResponse(success=False, message="Invalid action", error="Supported actions: chat, sentiment")
 
     # SENTIMENT: run emotion detection only
     if action == "sentiment":
@@ -907,47 +763,12 @@ async def unified_api(req: UnifiedRequest):
 
     # CHAT: default chat flow
     if action == "chat":
-        # Prefer UUID user_id if provided; fallback to username which will be resolved in logging
-        chat_req = ChatRequest(message=req.message or "", user_id=(req.user_id or req.username or "anonymous"))
+        chat_req = ChatRequest(message=req.message or "", session_id=(req.session_id or ""))
         return await chat_endpoint(chat_req)
 
     return ApiResponse(success=False, message="Unhandled action", error="Unknown error")
 
-@app.get("/check-user/{user_id}")
-async def check_user_exists(user_id: str):
-    """Check if a user ID exists in the database"""
-    global supabase
-    
-    if not supabase:
-        return ApiResponse(
-            success=False,
-            message="Database not available",
-            error="Supabase connection not available"
-        )
-    
-    try:
-        # Query the users table for the username
-        result = supabase.table("users").select("id, username").eq("username", user_id).limit(1).execute()
-        
-        user_exists = len(result.data) > 0
-        
-        return ApiResponse(
-            success=True,
-            message="User check completed",
-            data={
-                "user_id": user_id,
-                "exists": user_exists,
-                "message": f"Welcome back, {user_id}!" if user_exists else f"Welcome, {user_id}! This is your first time here."
-            }
-        )
-        
-    except Exception as e:
-        logger.error(f"Failed to check user existence: {e}")
-        return ApiResponse(
-            success=False,
-            message="Failed to check user",
-            error="Database error occurred"
-        )
+# User existence endpoint removed (no registration/auth)
 
 @app.post("/test-chat")
 async def test_chat_endpoint(req: ChatRequest):
