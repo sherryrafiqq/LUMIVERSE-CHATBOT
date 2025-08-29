@@ -35,8 +35,8 @@ Through IoT, cloud services, and AI-powered emotion analysis, LumiVerse is not j
 
 ### **Cloud Communication**
 - **HiveMQ with MQTT topics:**  
-  - `esp32/sensors/data`  
-  - `esp32/emotions/logs`  
+  - `esp32/character/emotion`  
+  - `flutter/sound`  
 
 ### **Applications**
 - **Flutter App**  
